@@ -13,7 +13,7 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.batch.item.file.transform.LineTokenizer;
 import org.springframework.core.io.ClassPathResource;
 
-public class Reader {
+public class FileReader {
   public static FlatFileItemReader reader(String path) {
 
     FlatFileItemReader reader = new FlatFileItemReader();

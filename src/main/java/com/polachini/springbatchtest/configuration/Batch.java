@@ -1,13 +1,7 @@
 package com.polachini.springbatchtest.configuration;
 
-import com.polachini.springbatchtest.batch.DetailProcessor;
-import com.polachini.springbatchtest.batch.DetailWriter;
-import com.polachini.springbatchtest.batch.HeaderProcessor;
-import com.polachini.springbatchtest.batch.HeaderWriter;
-import com.polachini.springbatchtest.batch.Listener;
-import com.polachini.springbatchtest.batch.Reader;
-import com.polachini.springbatchtest.batch.TrailerProcessor;
-import com.polachini.springbatchtest.batch.TrailerWriter;
+import com.polachini.springbatchtest.batch.*;
+import com.polachini.springbatchtest.entities.DetailEntity;
 import com.polachini.springbatchtest.models.BaseModel;
 import com.polachini.springbatchtest.models.Detail;
 import com.polachini.springbatchtest.models.Header;
@@ -24,12 +18,18 @@ import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemWriter;
+import org.springframework.batch.item.file.FlatFileItemWriter;
+import org.springframework.batch.item.file.transform.BeanWrapperFieldExtractor;
+import org.springframework.batch.item.file.transform.DelimitedLineAggregator;
 import org.springframework.batch.item.support.ClassifierCompositeItemProcessor;
 import org.springframework.batch.item.support.ClassifierCompositeItemWriter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.classify.SubclassClassifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 
 @Configuration
 @EnableBatchProcessing
@@ -56,9 +56,9 @@ public class Batch {
         .get("job")
         .incrementer(new RunIdIncrementer())
         .listener(new Listener())
-        .flow(step1())
-        .end()
-        .build();
+            .start(step1())
+            .next(step2())
+            .build();
   }
 
   @Bean
@@ -66,15 +66,55 @@ public class Batch {
     return stepBuilderFactory
         .get("step1")
         .<Header, Header>chunk(1)
-        .reader(Reader.reader("data.csv"))
-        .processor(processor())
-        .writer(writer())
+        .reader(FileReader.reader("data.csv"))
+        .processor(fileProcessor())
+        .writer(databaseWriter())
         .build();
   }
 
   @Bean
+  public Step step2() {
+    return stepBuilderFactory
+            .get("step2")
+            .<Detail, Detail>chunk(1)
+            .reader(DatabaseReader.reader(detailRepository))
+            .processor(databaseProcessor())
+            .writer(fileWriter())
+            .build();
+
+  }
+
+  private ItemWriter fileWriter() {
+    FlatFileItemWriter<DetailEntity> writer = new FlatFileItemWriter<>();
+    writer.setResource(new FileSystemResource("resources/output.csv"));
+    writer.setAppendAllowed(true);
+    writer.setLineAggregator(new DelimitedLineAggregator<DetailEntity>() {
+      {
+        setDelimiter(";");
+        setFieldExtractor(new BeanWrapperFieldExtractor<DetailEntity>() {
+          {
+            setNames(new String[] { "identificador", "nome", "idade" });
+          }
+        });
+      }
+    });
+
+    return writer;
+  }
+
+  @Bean
   @StepScope
-  public ItemProcessor processor() {
+  public ItemProcessor<DetailEntity, DetailEntity> databaseProcessor() {
+
+    return detail -> {
+      System.out.println(String.format("%s, %s, %s", detail.getIdentificador(), detail.getNome(), detail.getIdade()));
+      return detail;
+    };
+  }
+
+  @Bean
+  @StepScope
+  public ItemProcessor fileProcessor() {
 
     ClassifierCompositeItemProcessor processor = new ClassifierCompositeItemProcessor();
     SubclassClassifier<BaseModel, ItemProcessor> classifier = new SubclassClassifier<>();
@@ -88,7 +128,7 @@ public class Batch {
 
   @Bean
   @StepScope
-  public ItemWriter writer() {
+  public ItemWriter databaseWriter() {
 
     ClassifierCompositeItemWriter writer = new ClassifierCompositeItemWriter();
     SubclassClassifier<BaseModel, ItemWriter> classifier = new SubclassClassifier<>();
